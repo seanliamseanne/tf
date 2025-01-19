@@ -1,0 +1,5 @@
+subscription_id = "3ddadea6-786b-4549-8952-22502c6566db"
+tenant_id = "4d764b87-833b-46dd-bc58-c688402cb406"
+location = "North Europe"
+resource_group_name = "rgolasea"
+admin_password = "Buttercup123+"
