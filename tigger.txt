@@ -51,3 +51,16 @@
       yamllint --version
 
   displayName: 'Install Nix, Node.js, and yamllint'
+
+
+         - task: Bash@3
+            inputs:
+              targetType: '$(System.DefaultWorkingDirectory)/'  # Specify that you're running a file
+              filePath: '$(Build.SourcesDirectory)/setup.sh'  # Adjust this to the path of your script
+              workingDirectory: '$(Build.SourcesDirectory)'  # Optional: Define the working directory (usually not needed)
+              failOnStandardError: true  # Optionally fail the task if any standard error is encountered
+         #   displayName: "Install Nix, Node.js, and yamllint"
+
+
+
+
