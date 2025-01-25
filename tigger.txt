@@ -62,5 +62,30 @@
          #   displayName: "Install Nix, Node.js, and yamllint"
 
 
+steps:
+# Step 1: Copy the script to the staging directory
+- script: |
+    mkdir -p $(Build.ArtifactStagingDirectory)
+    cp $(Build.SourcesDirectory)/install_tools.sh $(Build.ArtifactStagingDirectory)/
+  displayName: 'Copy Bash Script to Staging Directory'
 
+# Step 2: Publish the script as a pipeline artifact
+- task: PublishPipelineArtifact@1
+  inputs:
+    targetPath: '$(Build.ArtifactStagingDirectory)/install_tools.sh'
+    artifactName: 'BashScriptArtifact'
+  displayName: 'Publish Bash Script as an Artifact'
+
+# Step 3: Download the Bash script artifact
+- task: DownloadPipelineArtifact@2
+  inputs:
+    artifactName: 'BashScriptArtifact'
+    targetPath: '$(Pipeline.Workspace)/scripts'
+  displayName: 'Download Bash Script Artifact'
+
+# Step 4: Run the Bash script
+- bash: |
+    chmod +x $(Pipeline.Workspace)/scripts/install_tools.sh
+    $(Pipeline.Workspace)/scripts/install_tools.sh
+  displayName: 'Run Bash Script'
 
