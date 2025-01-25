@@ -1,132 +1,53 @@
-trigger: 
-- main
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'Pay-As-You-Go (3ddadea6-786b-4549-8952-22502c6566db)'  # Your Azure subscription
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      # Exit on error and enable debug output
+      set -eux
 
-stages:
-- stage: Build
-  jobs:
-  - job: Build
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-  
-    - task: TerraformTaskV4@4
-      displayName: Tf init
-      inputs:
-        provider: 'azurerm'
-        command: 'init'
-        backendServiceArm: 'Pay-As-You-Go (3ddadea6-786b-4549-8952-22502c6566db)'
-        backendAzureRmResourceGroupName: 'seanstore'
-        backendAzureRmStorageAccountName: 'seanstoreage'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'prod.tfstate.terraform'
+      # Update package list
+      echo "Updating apt-get..."
+      sudo apt-get update -y
 
-
-# Step 2: Prepend Terraform path to ensure it's available in the system PATH (this step is usually optional)
-    - script: echo "vso[task.prependpath]/opt/hostedtoolcache/terraform/1.9.7/x64"
-
-
-    - task: TerraformTaskV4@4
-      displayName: Tf validate
-      inputs:
-        provider: 'azurerm'
-        command: 'validate'
-    - task: TerraformTaskV4@4
-      displayName: Tf fmt
-      inputs:
-        provider: 'azurerm'
-        command: 'custom'
-        outputTo: 'console'
-        customCommand: 'fmt'
-        environmentServiceNameAzureRM: 'Pay-As-You-Go (3ddadea6-786b-4549-8952-22502c6566db)'
+      # Install Nix
+      echo "Installing Nix..."
+      curl -L https://nixos.org/nix/install | sh -s -- --daemon
       
- 
- #   - task: TerraformTaskV4@4
- #     inputs:
- #       provider: 'azurerm'
- #      command: 'plan'
- #      environmentServiceNameAzureRM: 'Pay-As-You-Go(3ddadea6-786b-4549-8952-22502c6566db)'
+      # Ensure the Nix environment is loaded for the current session
+      echo "Loading Nix environment..."
+      . $HOME/.nix-profile/etc/profile.d/nix.sh
+      export PATH=$HOME/.nix-profile/bin:$PATH
 
-    - task: TerraformTaskV4@4
-      inputs:
-        provider: 'azurerm'
-        command: 'plan'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/'
-        environmentServiceNameAzureRM: 'Pay-As-You-Go (3ddadea6-786b-4549-8952-22502c6566db)'
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: 'Pay-As-You-Go (3ddadea6-786b-4549-8952-22502c6566db)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          steps:
-          - script: |
-              # Exit on error and enable debug output
-              set -eux
-          
-              # Install Nix
-              echo "Installing Nix..."
-              curl -L https://nixos.org/nix/install | sh -s -- --daemon
-              sudo apt-install nix
-              sh <(curl -L https://nixos.org/nix/install) --daemon
-          
-              # Load Nix environment
-              echo "Sourcing Nix environment..."
-              . $HOME/.nix-profile/etc/profile.d/nix.sh
-              export PATH=$HOME/.nix-profile/bin:$PATH
-          
-              # Confirm Nix installation
-              echo "Verifying Nix installation..."
-              nix --version
-          
-              # Install Node.js using Nix
-              echo "Installing Node.js via Nix..."
-              nix-env -iA nixpkgs.nodejs
-              sudo apt-get install nodejs
-              echo "Node.js version:"
-              node --version
-          
-              # Install yamllint using pip
-              echo "Installing yamllint via pip..."
-              sudo apt-get update && sudo apt-get install -y python3-pip
-              sudo apt-get install yamllint
-              pip3 install yamllint
-          
-              # Confirm installations
-              echo "Confirming yamllint installation..."
-              yamllint --version
-            #displayName: "Install Nix, Node.js, and yamllint"
-         #   displayName: "Install Nix, Node.js, and yamllint"
-    - task: TerraformTaskV4@4
-      inputs:
-        provider: 'azurerm'
-        command: 'apply'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/'
-        environmentServiceNameAzureRM: 'Pay-As-You-Go (3ddadea6-786b-4549-8952-22502c6566db)'
-    - task: ArchiveFiles@2
-      displayName: Archive files
-      inputs:
-        rootFolderOrFile: '$(Build.SourcesDirectory)/'
-        includeRootFolder: false
-        archiveType: 'zip'
-        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
-        replaceExistingArchive: true
-    
-    
+      # Verify Nix installation
+      echo "Verifying Nix installation..."
+      nix --version
 
-    - task: PublishBuildArtifacts@1
-      inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-        ArtifactName: '$(Build.BuildId)-build'
-        publishLocation: 'Container'
-    
-#    - task: TerraformTaskV4@4
-#      inputs:
-#        provider: 'azurerm'
-#        command: 'apply'
+      # Install Node.js using Nix
+      echo "Installing Node.js via Nix..."
+      nix-env -iA nixpkgs.nodejs
 
-        
-#    - task: PublishBuildArtifacts@1
- #     inputs:
-  #      PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-   #     ArtifactName: 'drop'
-    #    publishLocation: 'Container'
+      # Confirm Node.js installation
+      echo "Confirming Node.js installation..."
+      node --version
+
+      # Install Node.js using apt-get (additional, optional method)
+      echo "Installing Node.js using apt-get..."
+      sudo apt-get install -y nodejs
+      node --version
+
+      # Install yamllint using apt-get
+      echo "Installing yamllint using apt-get..."
+      sudo apt-get install -y yamllint
+
+      # Install yamllint via pip (additional method)
+      echo "Installing yamllint via pip..."
+      sudo apt-get install -y python3-pip
+      pip3 install yamllint
+
+      # Confirm yamllint installation
+      echo "Confirming yamllint installation..."
+      yamllint --version
+
+  displayName: 'Install Nix, Node.js, and yamllint'
