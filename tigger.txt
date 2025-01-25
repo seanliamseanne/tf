@@ -37,6 +37,52 @@
       sudo apt-get install -y nodejs
       node --version
 
+--------------------------------------------------------------------------------------------------------------
+#!/bin/bash
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Update package list and install dependencies
+echo "Updating package list..."
+sudo apt-get update
+
+# Install yamllint
+if command_exists yamllint; then
+    echo "yamllint is already installed."
+else
+    echo "Installing yamllint..."
+    sudo apt-get install -y yamllint
+fi
+
+# Install Node.js
+if command_exists node; then
+    echo "Node.js is already installed."
+else
+    echo "Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+fi
+
+# Install Nix
+if command_exists nix; then
+    echo "Nix is already installed."
+else
+    echo "Installing Nix..."
+    sh <(curl -L https://nixos.org/nix/install)
+fi
+
+echo "Installation complete!"
+
+# Make the script executable
+chmod +x "$0"
+
+
+
+
+
       # Install yamllint using apt-get
       echo "Installing yamllint using apt-get..."
       sudo apt-get install -y yamllint
