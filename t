@@ -91,7 +91,7 @@ Export-Certificate -Cert $cert -FilePath $cerPath
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 $certName = "CN=Keepit-M365-Backup"
-$pfxPassword = "StrongP@ssw0rd!"  # Choose a secure password
+$pfxPassword = "StrongKeepitBackP@ss!@2025"
 
 $pfxPath = "$env:USERPROFILE\Desktop\KeepitM365Backup.pfx"
 $cerPath = "$env:USERPROFILE\Desktop\KeepitM365Backup.cer"
