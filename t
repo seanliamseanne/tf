@@ -40,7 +40,7 @@ Write-Output "PFX Password: $pfxPasswordPlain"
 
 # === CONFIGURE THESE ===
 $certName = "CN=Keepit-M365-Backup"
-$pfxPassword = "StrongP@ssw0rd!"  # <-- Change this to your password
+$pfxPassword = "StrongKeepitBackP@ss!@2025"  # <-- Change this to your password
 
 # === Paths to export ===
 $desktop = [Environment]::GetFolderPath("Desktop")
