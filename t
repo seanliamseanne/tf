@@ -35,3 +35,53 @@ Write-Output "Thumbprint: $($cert.Thumbprint)"
 Write-Output "PFX File: $pfxPath"
 Write-Output "CER File: $cerPath"
 Write-Output "PFX Password: $pfxPasswordPlain"
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# === CONFIGURE THESE ===
+$certName = "CN=Keepit-M365-Backup"
+$pfxPassword = "StrongP@ssw0rd!"  # <-- Change this to your password
+
+# === Paths to export ===
+$desktop = [Environment]::GetFolderPath("Desktop")
+$pfxPath = Join-Path $desktop "KeepitM365Backup.pfx"
+$cerPath = Join-Path $desktop "KeepitM365Backup.cer"
+
+# === Create cert in Current User store ===
+$cert = New-SelfSignedCertificate -CertStoreLocation "Cert:\CurrentUser\My" `
+  -Subject $certName `
+  -KeySpec KeyExchange `
+  -KeyExportPolicy Exportable `
+  -KeyLength 2048 `
+  -NotAfter (Get-Date).AddYears(2) `
+  -FriendlyName "Keepit M365 Backup Certificate"
+
+# === Export private key (.pfx) ===
+$securePassword = ConvertTo-SecureString -String $pfxPassword -Force -AsPlainText
+Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePassword
+
+# === Export public key (.cer) ===
+Export-Certificate -Cert $cert -FilePath $cerPath
+
+# === Output Summary ===
+Write-Host "`n✅ Certificate created successfully!"
+Write-Host "📄 .pfx (private key): $pfxPath"
+Write-Host "📄 .cer (public key): $cerPath"
+Write-Host "🔐 PFX password: $pfxPassword"
+Write-Host "🔎 Thumbprint: $($cert.Thumbprint)"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
