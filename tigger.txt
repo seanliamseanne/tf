@@ -129,6 +129,47 @@ steps:
     targetPath: '$(Pipeline.Workspace)/scripts'
   displayName: 'Download Bash Script Artifact'
 
+
+
+# Connect to Azure AD
+Connect-AzAccount
+$apps = Get-AzADApplication
+
+$internalApps = @()
+
+foreach ($app in $apps) {
+    $isInternal = $false
+
+    # 1. Check if app is single tenant
+    if ($app.SignInAudience -eq "AzureADMyOrg") {
+        $isInternal = $true
+    }
+
+    # 2. Check redirect URIs
+    foreach ($uri in $app.Web.RedirectUris) {
+        if ($uri -match "localhost|\.local|internal|10\..*|192\.168\..*") {
+            $isInternal = $true
+        }
+    }
+
+    # Optional: Log internal apps
+    if ($isInternal) {
+        $internalApps += [PSCustomObject]@{
+            AppName = $app.DisplayName
+            AppId = $app.AppId
+            SignInAudience = $app.SignInAudience
+            RedirectUris = ($app.Web.RedirectUris -join ", ")
+        }
+    }
+}
+
+# Output or export
+$internalApps | Format-Table
+# To export to CSV:
+# $internalApps | Export-Csv -Path "InternalApps.csv" -NoTypeInformation
+
+
+
 # Step 4: Run the Bash script
 - bash: |
     chmod +x $(Pipeline.Workspace)/scripts/install_tools.sh
