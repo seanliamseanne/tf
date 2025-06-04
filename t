@@ -25,6 +25,9 @@ Export-PfxCertificate -Cert $cert -FilePath "C:\KeepitCert.pfx" -Password $pwd
 # Export public certificate only (CER)
 Export-Certificate -Cert $cert -FilePath "C:\KeepitCert.cer"
 
+-----------------------------------------------------------------------------------------------------------------------------
+
+openssl pkcs12 -in /c/Users/YourName/Desktop/KeepitCert.pfx -nocerts -nodes -out /c/Users/YourName/Desktop/keepit-private-key.pem
 
 
 
