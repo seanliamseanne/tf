@@ -31,7 +31,40 @@ openssl pkcs12 -in /c/Users/YourName/Desktop/KeepitCert.pfx -nocerts -nodes -out
 
 
 
+At line:14 char:28
++     [string]<mjx-container class="MathJax" jax="CHTML" style="font-si …
++                            ~~~~~~~~~~~~~~~
+Unexpected token 'class="MathJax"' in expression or statement.
 
+At line:14 char:13
++     [string]<mjx-container class="MathJax" jax="CHTML" style="font-si …
++             ~
+Missing closing ')' in expression.
+
+At line:36 char:3
++ "@
++   ~
+Missing closing ')' in expression.
+
+At line:39 char:384
++ … 35em; width: 323px;">You can't use 'macro parameter character #' in m …
++                                                                ~
+Missing closing ')' in expression.
+
+At line:40 char:138
++ … math class="MJX-TEX"><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></m …
++               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Unexpected token 'MJX-TEX"><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo></mjx-math></mjx-container>cert.CertName) (no owner email)"' in expression or statement.
+
+At line:41 char:5
++     }
++     ~
+Unexpected token '}' in expression or statement.
+
+At line:42 char:1
++ }
++ ~
+Unexpected token '}' in expression or statement.
 
 
 
