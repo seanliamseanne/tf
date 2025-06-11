@@ -126,6 +126,81 @@ Certificate Management Team
 Write-Output "Certificate expiration notification process completed."
 
 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Load WinSCP .NET assembly
+Add-Type -Path "$env:USERPROFILE\Documents\WindowsPowerShell\Modules\WinSCP\5.21.5.0\lib\WinSCPnet.dll"
+
+# ========== CONFIGURATION ==========
+
+# SFTP credentials
+$SftpHost = "ftp.pageroonline.com"
+$SftpUsername = "your_username"
+$SftpPassword = "your_password"
+$RemoteFolder = "/invoices"
+$LocalDownloadPath = "C:\Temp\SftpInvoices"
+
+# Azure Blob Storage
+$StorageAccountName = "yourstorageaccount"
+$StorageContainerName = "invoices"
+$StorageConnectionString = "DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+
+# ========== SETUP ==========
+
+# Create local download folder if it doesn't exist
+if (-not (Test-Path $LocalDownloadPath)) {
+    New-Item -ItemType Directory -Path $LocalDownloadPath | Out-Null
+}
+
+# ========== STEP 1: Connect to SFTP and Download Files ==========
+
+$sessionOptions = New-Object WinSCP.SessionOptions -Property @{
+    Protocol = [WinSCP.Protocol]::Sftp
+    HostName = $SftpHost
+    UserName = $SftpUsername
+    Password = $SftpPassword
+    PortNumber = 22
+    SshHostKeyPolicy = "GiveUpSecurityAndAcceptAny"
+}
+
+$session = New-Object WinSCP.Session
+try {
+    $session.Open($sessionOptions)
+
+    # List files
+    $remoteFiles = $session.ListDirectory($RemoteFolder).Files | Where-Object { -not $_.IsDirectory }
+
+    foreach ($file in $remoteFiles) {
+        $remotePath = Join-Path $RemoteFolder $file.Name
+        $localPath = Join-Path $LocalDownloadPath $file.Name
+
+        # Download file
+        Write-Output "Downloading $remotePath..."
+        $session.GetFiles($remotePath, $localPath).Check()
+    }
+
+} finally {
+    $session.Dispose()
+}
+
+# ========== STEP 2: Upload Files to Azure Blob Storage ==========
+
+# Connect to Azure Storage
+$ctx = New-AzStorageContext -ConnectionString $StorageConnectionString
+
+# Upload each file
+Get-ChildItem -Path $LocalDownloadPath -File | ForEach-Object {
+    $filePath = $_.FullName
+    $blobName = $_.Name
+
+    Write-Output "Uploading $blobName to Azure..."
+    Set-AzStorageBlobContent -File $filePath -Container $StorageContainerName -Blob $blobName -Context $ctx | Out-Null
+}
+
+Write-Output "✅ Done. Files transferred from SFTP to Azure Blob Storage."
+
+
+
 
 
 
