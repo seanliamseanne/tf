@@ -246,6 +246,37 @@ az storage blob upload-batch \
 echo "[$(date)] Upload complete"
 fi
 
+========================================================================================================================================================================
+
+
+- script: |
+    sudo apt-get update -y
+    sudo apt-get install -y sshpass
+
+    mkdir -p "$(LOCAL_DIR)"
+
+    BATCH_FILE=$(mktemp)
+    echo "lcd $(LOCAL_DIR)" > $BATCH_FILE
+    echo "cd /fromPagero/ftp.pageroonline.com" >> $BATCH_FILE
+    echo "mget *" >> $BATCH_FILE
+    echo "bye" >> $BATCH_FILE
+
+    echo "Starting SFTP download..."
+    sshpass -p "$(SFTP_PASS)" sftp -oBatchMode=no -b $BATCH_FILE "$(SFTP_USER)@ftp.pageroonline.com"
+
+    echo "Downloaded files:"
+    ls -lh "$(LOCAL_DIR)"
+
+    echo "Uploading files to Azure Blob Storage..."
+    az storage blob upload-batch \
+      --account-name $(AZURE_STORAGE_ACCOUNT) \
+      --destination $(AZURE_BLOB_CONTAINER) \
+      --source "$(LOCAL_DIR)" \
+      --sas-token "$(SAS_TOKEN)" \
+      --overwrite
+
+    echo "Upload complete."
+  displayName: 'Download from Pagero SFTP and upload to Azure Blob Storage'
 
 
 
