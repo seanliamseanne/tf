@@ -200,6 +200,53 @@ Get-ChildItem -Path $LocalDownloadPath -File | ForEach-Object {
 Write-Output "✅ Done. Files transferred from SFTP to Azure Blob Storage."
 
 
+=================================================================================================================================
+
+#!/bin/bash
+
+FTP_HOST='ftp.pageroonline.com'
+FTP_USER='Signicat'
+FTP_PASS='1UBujpi*'
+FTP_REMOTE_DIR='/fromPagero/ftp.pageroonline.com'
+LOCAL_DIR="/home/adminuser/pagero_invoices"
+
+AZURE_STORAGE_ACCOUNT="sftpsftpstorageaccount"
+AUTH_MODE='sas-token'
+SAS_TOKEN='sp=rw&st=2025-06-12T17:00:42Z&se=2025-06-13T01:00:42Z&spr=https&sv=2024-11-04&sr=c&sig=Y4YkIVRICKW%2Flxn8l8fCZ14nLu9Zm3pScepLWpFZjP0%3D'
+
+mkdir -p "LOCAL_DIR"
+
+echo "[$(date)] Starting FTP download..."
+echo "FTP_HOST=$FTP_HOST"
+echo "FTP_USER=$FTP_USER"
+echo "FTP_PASS=$FTPPASS"
+
+echo "DEBUG - FTP_USER: $FTP_USER"
+echo "DEBUG - FTP_PASS: $FTP_PASS"
+
+
+printf "user %s %s\npassive\ncd %s\nmget *\nbye\n" \
+"$FTP_USER" "$FTP_PASS" "FTP_REMOTE_DIR" "$LOCAL_DIR | ftp -inv "$FTP_HOST"
+
+echo "[$(date)] FTP download complete."
+
+echo "[$(date)] Local files:"
+
+ls -lh "$LOCAL_DIR"
+
+if [ "$(ls -A "$LOCAL_DIR")" ]; then
+
+echo "[$(date)] Uploading to Azure Blob Storage..."
+az storage blob upload-batch \
+ --account-name "AZURE_STORAGE_ACCOUNT" \
+ --destination "AZURE_BLOB_CONTAINER" \
+ --source "LOCAL_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --output table
+echo "[$(date)] Upload complete"
+fi
+
+
 
 
 
