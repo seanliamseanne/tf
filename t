@@ -527,6 +527,132 @@ echo "[$(date)] Bidirectional sync complete."
 
 
 
+============================================================================================================================================================================
+============================================================================================================================================================================
+
+
+#!/bin/bash
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='your_sftp_user'               # <-- Replace
+SFTP_PASS='your_sftp_password'           # <-- Replace
+SFTP_REMOTE_DIR='/inbox'                 # <-- Replace if needed
+
+LOCAL_DIR="$HOME/pagero_sync"
+LOCAL_AZURE_DOWNLOAD_DIR="$HOME/pagero_sync/from_azure"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'     # <-- Replace
+AZURE_BLOB_CONTAINER='yourcontainer'           # <-- Replace
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'  # <-- Replace
+
+# === Ensure required directories exist ===
+mkdir -p "$LOCAL_DIR"
+mkdir -p "$LOCAL_AZURE_DOWNLOAD_DIR"
+
+# === Get absolute paths ===
+ABS_LOCAL_DIR=$(realpath "$LOCAL_DIR")
+ABS_AZURE_DOWNLOAD_DIR=$(realpath "$LOCAL_AZURE_DOWNLOAD_DIR")
+
+echo "[$(date)] 🔁 Starting Pagero ↔ Azure sync..."
+
+# === Ensure sshpass is installed ===
+if ! command -v sshpass &> /dev/null; then
+  echo "Installing sshpass..."
+  sudo apt-get update && sudo apt-get install -y sshpass
+fi
+
+# === 1. Download .xml FROM Pagero SFTP ===
+echo "[$(date)] 📥 Checking for .xml files on Pagero..."
+
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $ABS_LOCAL_DIR
+cd $SFTP_REMOTE_DIR
+mget *.xml
+bye
+EOF
+
+downloaded_xml_count=$(find "$ABS_LOCAL_DIR" -maxdepth 1 -name "*.xml" | wc -l)
+
+if [ "$downloaded_xml_count" -eq 0 ]; then
+  echo "[$(date)] ⚠️ No .xml files found or downloaded from Pagero."
+else
+  echo "[$(date)] ✅ Downloaded $downloaded_xml_count .xml file(s) from Pagero:"
+  ls -lh "$ABS_LOCAL_DIR"/*.xml
+fi
+
+# === 2. Upload downloaded files to Azure Blob Storage ===
+if [ "$downloaded_xml_count" -gt 0 ]; then
+  echo "[$(date)] ⬆️ Uploading downloaded .xml files to Azure Blob..."
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --source "$ABS_LOCAL_DIR" \
+    --pattern "*.xml" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+else
+  echo "[$(date)] ⏭️ Skipping upload to Azure (no new .xml files)."
+fi
+
+# === 3. Download blobs from Azure matching cli-2018-*.txt ===
+echo "[$(date)] 📥 Downloading cli-2018-*.txt blobs from Azure..."
+
+blobs=$(az storage blob list \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --container-name "$AZURE_BLOB_CONTAINER" \
+  --prefix "cli-2018-" \
+  --sas-token "$SAS_TOKEN" \
+  --query "[?ends_with(name, '.txt')].name" \
+  --output tsv)
+
+downloaded_blob_count=0
+
+for blob in $blobs; do
+  echo "Downloading blob: $blob"
+  az storage blob download \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --container-name "$AZURE_BLOB_CONTAINER" \
+    --name "$blob" \
+    --file "$ABS_AZURE_DOWNLOAD_DIR/$(basename "$blob")" \
+    --sas-token "$SAS_TOKEN" \
+    --output none
+  ((downloaded_blob_count++))
+done
+
+if [ "$downloaded_blob_count" -eq 0 ]; then
+  echo "[$(date)] ⚠️ No cli-2018-*.txt blobs found to download."
+else
+  echo "[$(date)] ✅ Downloaded $downloaded_blob_count blob(s) from Azure."
+  ls -lh "$ABS_AZURE_DOWNLOAD_DIR"
+fi
+
+# === 4. Upload Azure files back TO Pagero ===
+if [ "$(find "$ABS_AZURE_DOWNLOAD_DIR" -type f -name 'cli-2018-*.txt' | wc -l)" -gt 0 ]; then
+  echo "[$(date)] ⬆️ Uploading downloaded Azure blobs back to Pagero..."
+
+  sshpass -p "$SFTP_PASS" sftp \
+    -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+    -oStrictHostKeyChecking=no \
+    "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $ABS_AZURE_DOWNLOAD_DIR
+cd $SFTP_REMOTE_DIR
+mput cli-2018-*.txt
+bye
+EOF
+
+  echo "[$(date)] ✅ Upload to Pagero complete."
+else
+  echo "[$(date)] ⏭️ No files to upload to Pagero."
+fi
+
+echo "[$(date)] ✅ Full sync complete."
 
 
 
