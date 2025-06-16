@@ -334,6 +334,98 @@ steps:
   displayName: 'Download from Pagero FTP and upload to Azure Blob Storage'
 
 
+==========================================""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+
+#!/bin/bash
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'           # <-- Replace if needed
+SFTP_USER='your_sftp_user'                 # <-- Replace
+SFTP_PASS='your_sftp_password'             # <-- Replace
+
+SFTP_REMOTE_DOWNLOAD_DIR='/from_pagero'    # Download FROM Pagero
+SFTP_REMOTE_UPLOAD_DIR='/to_pagero'        # Upload TO Pagero
+
+LOCAL_DOWNLOAD_DIR="$HOME/pagero_sync/from"
+LOCAL_UPLOAD_DIR="$HOME/pagero_sync/to"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'     # <-- Replace
+AZURE_BLOB_CONTAINER='yourcontainer'           # <-- Replace
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'  # <-- Replace
+
+# === Ensure directories exist ===
+mkdir -p "$LOCAL_DOWNLOAD_DIR"
+mkdir -p "$LOCAL_UPLOAD_DIR"
+
+echo "[$(date)] Starting Pagero SFTP ↔ Azure sync..."
+
+# === Ensure sshpass is installed ===
+if ! command -v sshpass &> /dev/null; then
+  echo "sshpass not found. Installing..."
+  sudo apt-get update && sudo apt-get install -y sshpass
+fi
+
+# === 1. Download FROM Pagero and delete remote files ===
+echo "[$(date)] Downloading files from Pagero..."
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DOWNLOAD_DIR
+cd $SFTP_REMOTE_DOWNLOAD_DIR
+mget *
+rm *
+bye
+EOF
+
+echo "[$(date)] Download from Pagero complete."
+
+# === 2. Upload downloaded files to Azure ===
+if [ -d "$LOCAL_DOWNLOAD_DIR" ] && [ -n "$(find "$LOCAL_DOWNLOAD_DIR" -type f -print -quit)" ]; then
+  echo "[$(date)] Uploading files from Pagero to Azure..."
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --source "$LOCAL_DOWNLOAD_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+else
+  echo "[$(date)] No new files downloaded from Pagero."
+fi
+
+# === 3. Download files from Azure to upload TO Pagero ===
+echo "[$(date)] Downloading files from Azure Blob Storage..."
+az storage blob download-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$LOCAL_UPLOAD_DIR" \
+  --source "$AZURE_BLOB_CONTAINER" \
+  --sas-token "$SAS_TOKEN" \
+  --output table
+
+# === 4. Upload TO Pagero ===
+if [ -d "$LOCAL_UPLOAD_DIR" ] && [ -n "$(find "$LOCAL_UPLOAD_DIR" -type f -print -quit)" ]; then
+  echo "[$(date)] Uploading files to Pagero..."
+  sshpass -p "$SFTP_PASS" sftp \
+    -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+    -oStrictHostKeyChecking=no \
+    "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_UPLOAD_DIR
+cd $SFTP_REMOTE_UPLOAD_DIR
+mput *
+bye
+EOF
+else
+  echo "[$(date)] No new files to upload to Pagero."
+fi
+
+echo "[$(date)] ✅ Sync complete."
+
+
+
 
 
 
