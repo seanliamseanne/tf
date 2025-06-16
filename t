@@ -425,6 +425,104 @@ fi
 echo "[$(date)] ✅ Sync complete."
 
 
+===========================+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+#!/bin/bash
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='Signicat'               # <-- Replace
+SFTP_PASS='your_sftp_password'           # <-- Replace
+
+# Separate remote dirs for download and upload
+SFTP_REMOTE_DOWNLOAD_DIR='/inbox'        # Download FROM here
+SFTP_REMOTE_UPLOAD_DIR='/outbox'         # Upload TO here
+
+# Separate local dirs for download and upload
+LOCAL_DOWNLOAD_DIR="$HOME/pagero_sync/from_sftp"
+LOCAL_UPLOAD_DIR="$HOME/pagero_sync/to_sftp"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'        # <-- Replace
+AZURE_BLOB_CONTAINER='yourcontainer'              # <-- Replace
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'  # <-- Replace
+
+# === Create local directories ===
+mkdir -p "$LOCAL_DOWNLOAD_DIR"
+mkdir -p "$LOCAL_UPLOAD_DIR"
+
+echo "[$(date)] Starting bidirectional SFTP ↔ Azure sync..."
+
+# === Ensure sshpass is installed ===
+if ! command -v sshpass &> /dev/null; then
+  echo "sshpass not found. Installing..."
+  sudo apt-get update && sudo apt-get install -y sshpass
+fi
+
+# === 1. Download files FROM SFTP server ===
+echo "[$(date)] Downloading files from SFTP server ($SFTP_REMOTE_DOWNLOAD_DIR)..."
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DOWNLOAD_DIR
+cd $SFTP_REMOTE_DOWNLOAD_DIR
+mget *
+bye
+EOF
+
+echo "[$(date)] Download complete. Local files:"
+ls -lh "$LOCAL_DOWNLOAD_DIR"
+
+# === 2. Upload downloaded files TO Azure Blob Storage ===
+if [ "$(ls -A "$LOCAL_DOWNLOAD_DIR")" ]; then
+  echo "[$(date)] Uploading downloaded files to Azure Blob Storage..."
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --source "$LOCAL_DOWNLOAD_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+  echo "[$(date)] Azure upload complete."
+else
+  echo "[$(date)] No new files downloaded from SFTP to upload."
+fi
+
+# === 3. Download files FROM Azure Blob Storage for upload TO SFTP ===
+echo "[$(date)] Downloading files from Azure Blob Storage to upload directory..."
+az storage blob download-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --source "$AZURE_BLOB_CONTAINER" \
+  --destination "$LOCAL_UPLOAD_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --output table
+
+echo "[$(date)] Files downloaded from Azure for upload:"
+ls -lh "$LOCAL_UPLOAD_DIR"
+
+# === 4. Upload files TO SFTP server ===
+if [ "$(ls -A "$LOCAL_UPLOAD_DIR")" ]; then
+  echo "[$(date)] Uploading files to SFTP server ($SFTP_REMOTE_UPLOAD_DIR)..."
+  sshpass -p "$SFTP_PASS" sftp \
+    -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+    -oStrictHostKeyChecking=no \
+    "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_UPLOAD_DIR
+cd $SFTP_REMOTE_UPLOAD_DIR
+mput *
+bye
+EOF
+  echo "[$(date)] Upload to SFTP complete."
+else
+  echo "[$(date)] No new files to upload to SFTP."
+fi
+
+echo "[$(date)] Bidirectional sync complete."
+
+
 
 
 
