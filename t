@@ -654,9 +654,70 @@ fi
 
 echo "[$(date)] ✅ Full sync complete."
 
+----------------=============================================--------$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
 
 
+
+
+
+#!/bin/bash
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='your_sftp_user'               # <-- Replace
+SFTP_PASS='your_sftp_password'           # <-- Replace
+SFTP_REMOTE_DIR='/inbox'                 # <-- Replace if needed
+
+LOCAL_DIR="$HOME/pagero_sync"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'
+AZURE_BLOB_CONTAINER='yourcontainer'
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'  # <-- Replace
+
+# === Create local directory ===
+mkdir -p "$LOCAL_DIR"
+
+echo "[$(date)] Starting SFTP download from $SFTP_HOST..."
+
+# === Ensure sshpass is installed ===
+if ! command -v sshpass &> /dev/null; then
+  echo "sshpass not found. Installing..."
+  sudo apt-get update && sudo apt-get install -y sshpass
+fi
+
+# === Run SFTP non-interactively ===
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DIR
+cd $SFTP_REMOTE_DIR
+mget *
+bye
+EOF
+
+echo "[$(date)] SFTP download complete."
+echo "[$(date)] Local files downloaded:"
+ls -lh "$LOCAL_DIR"
+
+# === Upload to Azure Storage ===
+if [ "$(ls -A "$LOCAL_DIR")" ]; then
+  echo "[$(date)] Uploading to Azure Blob Storage..."
+
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --source "$LOCAL_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+
+  echo "[$(date)] Upload complete."
+else
+  echo "[$(date)] No files to upload."
+fi
 
 
 
