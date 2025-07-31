@@ -720,6 +720,107 @@ else
 fi
 
 
+========================================================================================
+========================================================================================
+========================================================================================
+
+
+#!/bin/bash
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='your_sftp_user'
+SFTP_PASS='your_sftp_password'
+SFTP_REMOTE_DIR='/inbox'
+LOCAL_DIR="$HOME/pagero_sync"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'
+AZURE_BLOB_CONTAINER='yourcontainer'
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'
+
+# === D365 API Auth ===
+TENANT_ID='your-tenant-id'
+CLIENT_ID='your-client-id'
+CLIENT_SECRET='your-client-secret'
+DYNAMICS_URL='https://yourenv.operations.dynamics.com'
+DATA_PROJECT='YourDataProjectName'
+
+# === Ensure tools are installed ===
+for tool in sshpass curl jq azcopy; do
+  if ! command -v $tool &> /dev/null; then
+    echo "Missing $tool. Installing..."
+    sudo apt-get update
+    sudo apt-get install -y $tool
+  fi
+done
+
+# === Prepare local dir ===
+mkdir -p "$LOCAL_DIR"
+
+echo "[$(date)] Downloading from Pagero SFTP..."
+
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DIR
+cd $SFTP_REMOTE_DIR
+mget *
+bye
+EOF
+
+echo "[$(date)] Starting upload + Dynamics import..."
+
+# === Get OAuth token from Azure AD ===
+echo "Authenticating with Azure AD..."
+ACCESS_TOKEN=$(curl -s -X POST -d "grant_type=client_credentials&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&resource=$DYNAMICS_URL" \
+  "https://login.microsoftonline.com/$TENANT_ID/oauth2/token" | jq -r .access_token)
+
+if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+  echo "Failed to get access token"
+  exit 1
+fi
+
+# === Process each file ===
+for FILE in "$LOCAL_DIR"/*; do
+  [ -f "$FILE" ] || continue
+  FILE_NAME=$(basename "$FILE")
+  echo "Processing: $FILE_NAME"
+
+  # 1. Upload to Azure Blob (optional, in case you still use Azure Storage)
+  echo "Uploading to Azure Blob..."
+  azcopy copy "$FILE" "https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_BLOB_CONTAINER}/${FILE_NAME}${SAS_TOKEN}" --overwrite=true
+
+  # 2. Get SAS URL from D365
+  echo "Requesting SAS URL from Dynamics..."
+  SAS_URL=$(curl -s -X POST "$DYNAMICS_URL/data/DataManagementDefinitionGroups/Microsoft.Dynamics.DataEntities.GetAzureWriteUrl" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"containerName\": \"$AZURE_BLOB_CONTAINER\", \"blobName\": \"$FILE_NAME\"}" | jq -r .UploadUrl)
+
+  if [[ -z "$SAS_URL" || "$SAS_URL" == "null" ]]; then
+    echo "Failed to get SAS upload URL for $FILE_NAME"
+    continue
+  fi
+
+  # 3. Upload file directly to D365 SAS URL
+  echo "Uploading $FILE_NAME to Dynamics..."
+  curl -s -X PUT "$SAS_URL" \
+    -H "x-ms-blob-type: BlockBlob" \
+    --data-binary @"$FILE" > /dev/null
+
+  # 4. Trigger import
+  echo "Triggering import for $FILE_NAME..."
+  curl -s -X POST "$DYNAMICS_URL/data/DataManagementDefinitionGroups/Microsoft.Dynamics.DataEntities.ExecuteImport" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"definitionGroupId\": \"$DATA_PROJECT\"}" > /dev/null
+
+  echo "✅ Done: $FILE_NAME"
+done
+
+echo "[$(date)] All files processed."
 
 
 
