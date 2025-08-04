@@ -822,7 +822,78 @@ done
 
 echo "[$(date)] All files processed."
 
+≈===========⁵/////////
 
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Get_blob_content_using_path": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['azureblob']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/datasets/default/files/@{triggerOutputs()?['headers']['x-ms-file-path-encoded']}/content",
+          "queries": {
+            "inferContentType": true
+          }
+        },
+        "runAfter": {},
+        "metadata": {
+          "operationMetadataId": "getBlobContentPath"
+        }
+      },
+      "Log_File_Details": {
+        "type": "Compose",
+        "inputs": {
+          "filename": "@triggerOutputs()?['headers']['x-ms-file-name']",
+          "path": "@triggerOutputs()?['headers']['x-ms-file-path']",
+          "content": "@body('Get_blob_content_using_path')"
+        },
+        "runAfter": {
+          "Get_blob_content_using_path": ["Succeeded"]
+        }
+      }
+    },
+    "triggers": {
+      "When_a_blob_is_added_or_modified_(V2)": {
+        "type": "ApiConnectionWebhook",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['azureblob']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/datasets/default/triggers/OnUpdatedFile",
+          "queries": {
+            "folderId": "/<your-container-name>",
+            "inferContentType": true
+          }
+        },
+        "metadata": {
+          "operationMetadataId": "blobTrigger"
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "parameters": {
+    "$connections": {
+      "value": {
+        "azureblob": {
+          "connectionId": "/subscriptions/<your-subscription-id>/resourceGroups/<your-resource-group>/providers/Microsoft.Web/connections/azureblob",
+          "connectionName": "azureblob",
+          "id": "/subscriptions/<your-subscription-id>/providers/Microsoft.Web/locations/<region>/managedApis/azureblob"
+        }
+      }
+    }
+  }
+}
 
 
 
