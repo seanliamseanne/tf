@@ -895,7 +895,78 @@ echo "[$(date)] All files processed."
   }
 }
 
+@@@@@@@@@@@@@@@@@@@××@×@@@@@@@
+@@@####@@@$$$$$$
 
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "logicAppName": {
+      "type": "string",
+      "defaultValue": "BlobTriggerTestApp"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "sftpftpstorageaccount"
+    },
+    "containerName": {
+      "type": "string",
+      "defaultValue": "exflow"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "actions": {
+            "Log_blob_name": {
+              "runAfter": {},
+              "type": "Compose",
+              "inputs": "@triggerOutputs()?['headers']['x-ms-file-last-modified']"
+            }
+          },
+          "triggers": {
+            "When_a_blob_is_added_or_modified": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azureblob']['connectionId']"
+                  }
+                },
+                "method": "get",
+                "path": "/datasets/default/triggers/onupdatedfile",
+                "queries": {
+                  "folderId": "/[parameters('containerName')]"
+                }
+              },
+              "splitOn": "@triggerBody()?['value']"
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azureblob": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', 'azureblob')]",
+                "connectionName": "azureblob",
+                "id": "/subscriptions/<your-subscription-id>/providers/Microsoft.Web/locations/<your-location>/managedApis/azureblob"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
 
 
 
