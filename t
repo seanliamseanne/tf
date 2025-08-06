@@ -968,6 +968,46 @@ echo "[$(date)] All files processed."
   ]
 }
 
+////====/////////////////////////
+
+Install-Module Microsoft.Graph -Scope CurrentUser
+Connect-MgGraph -Scopes "Application.Read.All", "Directory.Read.All", "AuditLog.Read.All"
+
+$apps = Get-MgApplication -All
+$results = @()
+
+foreach ($app in $apps) {
+    $info = [PSCustomObject]@{
+        DisplayName             = $app.DisplayName
+        AppId                   = $app.AppId
+        AppOwnerCount           = ($app.Owners.Count)
+        RedirectURICount        = ($app.Web.RedirectUris.Count)
+        ImplicitGrantEnabled    = ($app.Web.ImplicitGrantSettings.EnableAccessTokenIssuance -or $app.Web.ImplicitGrantSettings.EnableIdTokenIssuance)
+        SecretCount             = ($app.PasswordCredentials.Count)
+        NearestSecretExpiry     = ($app.PasswordCredentials | Sort-Object EndDateTime | Select-Object -First 1).EndDateTime
+        CertCount               = ($app.KeyCredentials.Count)
+        NearestCertExpiry       = ($app.KeyCredentials | Sort-Object EndDateTime | Select-Object -First 1).EndDateTime
+        ApiPermissions          = ($app.RequiredResourceAccess | ForEach-Object {
+                                        $_.ResourceAccess | ForEach-Object { $_.Type }
+                                   }) -join ", "
+    }
+
+    $results += $info
+}
+
+# Output results
+$results | Format-Table -AutoSize
+$results | Export-Csv -Path ".\AppSecurityAudit.csv" -NoTypeInformation
+
+$signins = Get-MgAuditLogSignIn -All | Where-Object {
+    $_.AppDisplayName -in $apps.DisplayName
+}
+
+$signins | Select-Object AppDisplayName, UserDisplayName, IPAddress, CreatedDateTime, Status | Export-Csv .\AppSignIns.csv -NoTypeInformation
+
+
+
+
 
 
 
