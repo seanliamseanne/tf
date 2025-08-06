@@ -1202,6 +1202,129 @@ fi
 echo "[$(date)] Script complete. Local archive: $LOCAL_DIR"
 
 
+================================================================================================
+=============================================
+
+
+set -x
+
+LOG_FILE="$HOME/pagero_sync_upload.log"
+exec > >(tee -a "LOG_FILE") 2>&1
+
+echo "[$(date)] script started"
+
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='Signicat'
+SFTP_PASS='1UBujpi*Pumr'
+SFTP_REMOTE_DIR='/fromPagero/*'
+SFTP_REMOTE_DIR='/toPagero/*'
+
+LOCAL_DIR="/tmp/pagero_sync/"
+
+AZURE_STORAGE_ACCOUNT='sftpsftpstorageaccount'
+AZURE_BLOB_CONTAINER='exflow'
+SAS_TOKEN='sv=2024-11-04&ss=bfqt&srt=co&sp=rwdlacupyx&se=2026-07-13T22:21:13Z&st=2025-06-16T14:21:13Z&spr=https&sig=fymu4Sw7MSSjbuOTH08IlbtrkSUr4wkP9LsHhmG2UeI%3D' 
+
+echo "[$(date)] Creating local directory: $LOCAL_DIR"
+
+mkdir -p "$LOCAL_DIR"
+mkdir -p "$ARCHIVE_DIR"
+touch "$LOG_FILE"
+
+echo "[$(date)] Archiving old XML files from $LOCAL_DIR to $ARCHIVE_DIR..."
+find "$LOCAL_DIR" -maxdepth 1 -type f -name '*.xml' -exec mv {} "$ARCHIVE_DIR/" \;
+
+echo "[$(date)] Starting SFTP download from $SFTP_HOST..."
+
+if ! command -v sshpass &> /dev/null; then
+echo "sshpass not found. Installing..."
+sudo apt-get update && sudo apt-get install -y sshpass
+fi
+
+LATEST_DATE=$(date +%Y%m%d)
+sshpass -p "$SFTP_PASS" sftp \
+-oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+-oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+-oStrictHostKeyChecking=no \
+"$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DIR
+cd $SFTP_REMOTE_DIR
+mget -p *
+bye
+EOF
+
+
+echo "[$(date)] File list retrieved. Checking for new files..."
+
+while read -r file; do
+[[ -z "$file" || "$file" != *.xml ]] && continue
+if grep -Fxq "$file" "$LOG_FILE"; then
+echo "[$(date)] Skipping (already downloaded): $file"
+continue
+fi
+
+done < "$LIST_FILE"
+
+
+echo "[$(date)] SFTP download complete."
+echo "[$(date)] Local files downloaded:"
+ls -lh "$LOCAL_DIR"
+
+TEMP_DIR="$LOCAL_DIR/fromPagero/invoice/temp"
+PROD_DIR="$LOCAL_DIR/fromPagero/invoice/prod"
+TEST_DIR="$LOCAL_DIR/fromPagero/invoice/test"
+
+mkdir -p "$TEMP_DIR" "$PROD_DIR" "$TEST_DIR"
+
+echo "[$(date)] Moving files from temp to prod/test..."
+find "$LOCAL_DIR" -maxdepth 1 -type f -name "*xml" -exec mv {} "$TEMP_DIR/" \;
+
+for file in "$TEMP_DIR"/*; do
+if [[ -f "$file" ]]; then
+filename=$(basename "$file")
+if [[ "$filename" == *prod.xml ]]; then
+mv "$file" "$PROD_DIR/"
+echo "Moved $filename to prod/"
+else
+mv "$file" "TEST_DIR/"
+echo "Moved $filename to test/"
+fi
+fi
+done
+
+echo "[$(date) Current file structure:"
+if command -v tree &> /dev/null; then
+tree "$LOCAL_DIR"
+else
+
+find "$LOCAL_DIR"
+fi
+
+UPLOAD_ROOT="$LOCAL_DIR/fromPagero"
+
+if [ "$(find "$UPLOAD_ROOT" -type f | wc -l)" -gt 0 ]; then
+echo "[$(date)] Uploading to Azure Blob Storage from $UPLOAD_ROOT..."
+
+
+echo "[$(date)] Uploading to Azure Blob Storage..."
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --source "$LOCAL_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite  \
+ --output table
+
+echo "[$(date)] Upload complete."
+
+else
+
+echo "[$(date)] No files to upload."
+fi
+
+echo "[$(date)] script finished"
+
+
 
 
 
