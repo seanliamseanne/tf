@@ -1006,6 +1006,19 @@ $signins = Get-MgAuditLogSignIn -All | Where-Object {
 $signins | Select-Object AppDisplayName, UserDisplayName, IPAddress, CreatedDateTime, Status | Export-Csv .\AppSignIns.csv -NoTypeInformation
 
 
+================================================================================----------------------------------------------------------**********************************************
+
+
+# === SAFE CLEANUP ===
+if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" && "$TEMP_DIR" != "/" ]]; then
+  echo "[$(date)] Cleaning temp folder: $TEMP_DIR"
+  find "$TEMP_DIR" -maxdepth 1 -type f -name '*.xml' -delete
+else
+  echo "[$(date)] ERROR: TEMP_DIR is invalid. Aborting cleanup!"
+  exit 1
+fi
+
+
 
 
 
