@@ -1478,6 +1478,14 @@ fi
 echo "[$(date)] Script finished."
 
 
+error
+
+
+./pagero_sync.sh: line 149: unexpected EOF while looking for matching `"'
+./pagero_sync.sh: line 150: warning: here-document at line 150 delimited by end-of-file (wanted `EOF')
+./pagero_sync.sh: line 150: syntax error: unexpected end of file
+
+
 
 
 
