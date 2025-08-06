@@ -1023,7 +1023,98 @@ fi
 
 
 
+====88888888888888888888888888888888888888888=================================================
 
+
+#!/bin/bash
+
+# === CONFIGURATION ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='your_sftp_user'           # <-- Replace
+SFTP_PASS='your_sftp_password'       # <-- Replace
+SFTP_REMOTE_DIR='/inbox'             # <-- Replace if needed
+
+LOCAL_DIR="$HOME/pagero_sync"
+ARCHIVE_DIR="$LOCAL_DIR/archive"
+LOG_FILE="$LOCAL_DIR/downloaded_files.log"
+LIST_FILE="$LOCAL_DIR/remote_list.txt"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'       # <-- Replace
+AZURE_BLOB_CONTAINER='yourcontainer'             # <-- Replace
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'  # <-- Replace
+
+echo "[$(date)] === STARTING SYNC SCRIPT ==="
+
+# === SETUP ===
+mkdir -p "$LOCAL_DIR"
+mkdir -p "$ARCHIVE_DIR"
+touch "$LOG_FILE"
+
+# === CLEANUP: Move old XMLs to archive instead of deleting ===
+echo "[$(date)] Archiving old XML files from $LOCAL_DIR to $ARCHIVE_DIR..."
+find "$LOCAL_DIR" -maxdepth 1 -type f -name '*.xml' -exec mv {} "$ARCHIVE_DIR/" \;
+
+# === FETCH REMOTE FILE LIST ===
+echo "[$(date)] Fetching file list from SFTP..."
+sshpass -p "$SFTP_PASS" sftp -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF > "$LIST_FILE"
+cd $SFTP_REMOTE_DIR
+ls -1
+bye
+EOF
+
+echo "[$(date)] File list retrieved. Checking for new files..."
+
+# === DOWNLOAD ONLY NEW FILES ===
+while read -r file; do
+  [[ -z "$file" || "$file" != *.xml ]] && continue
+
+  if grep -Fxq "$file" "$LOG_FILE"; then
+    echo "[$(date)] Skipping (already downloaded): $file"
+    continue
+  fi
+
+  echo "[$(date)] Attempting to download: $file"
+
+  sshpass -p "$SFTP_PASS" sftp -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DIR
+cd $SFTP_REMOTE_DIR
+get "$file"
+bye
+EOF
+
+  # === LOG ONLY IF DOWNLOAD SUCCEEDS ===
+  if [[ -f "$LOCAL_DIR/$file" ]]; then
+    echo "$file" >> "$LOG_FILE"
+    echo "[$(date)] ✅ Successfully downloaded and logged: $file"
+  else
+    echo "[$(date)] ❌ Download failed: $file (not logged)"
+  fi
+
+done < "$LIST_FILE"
+
+# === UPLOAD DOWNLOADED FILES TO AZURE STORAGE ===
+if ls "$LOCAL_DIR"/*.xml &>/dev/null; then
+  echo "[$(date)] Uploading new files to Azure Blob Storage..."
+
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --source "$LOCAL_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+
+  echo "[$(date)] ✅ Upload complete."
+
+  # === ARCHIVE DOWNLOADED FILES AFTER UPLOAD ===
+  echo "[$(date)] Archiving uploaded XML files to $ARCHIVE_DIR..."
+  mv "$LOCAL_DIR"/*.xml "$ARCHIVE_DIR"/
+
+else
+  echo "[$(date)] ⚠️ No new XML files to upload."
+fi
+
+echo "[$(date)] === SCRIPT FINISHED ==="
 
 
 
