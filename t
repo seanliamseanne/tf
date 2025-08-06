@@ -1119,6 +1119,87 @@ echo "[$(date)] === SCRIPT FINISHED ==="
 
 
 
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""" full script try ================================================================================================
+
+
+
+#!/bin/bash
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='your_sftp_user'             # <-- Replace
+SFTP_PASS='your_sftp_password'         # <-- Replace
+SFTP_REMOTE_DIR='/inbox'               # <-- Replace if needed
+
+LOCAL_DIR="$HOME/pagero_sync"
+LOG_FILE="$LOCAL_DIR/downloaded_files.log"
+REMOTE_LIST="$LOCAL_DIR/remote_files.txt"
+
+AZURE_STORAGE_ACCOUNT='yourstorageaccount'               # <-- Replace
+AZURE_BLOB_CONTAINER='yourcontainer'                     # <-- Replace
+SAS_TOKEN='?sp=rw&st=2025-06-13T00:00:00Z&se=2025-06-14T00:00:00Z&spr=https&sv=2022-11-02&sr=c&sig=abc%2F123%2Bxyz'  # <-- Replace
+
+# === Setup local directory and log ===
+mkdir -p "$LOCAL_DIR"
+touch "$LOG_FILE"
+
+echo "[$(date)] Starting sync..."
+
+# === List files on the remote SFTP server ===
+echo "[$(date)] Listing remote files..."
+sshpass -p "$SFTP_PASS" sftp -oBatchMode=no -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF > "$REMOTE_LIST"
+cd $SFTP_REMOTE_DIR
+ls
+bye
+EOF
+
+# === Download new XML files only ===
+echo "[$(date)] Checking for new XML files to download..."
+while read -r file; do
+  # Ignore blank lines and non-XML files
+  [[ -z "$file" || "$file" != *.xml ]] && continue
+
+  # Skip if already downloaded
+  if grep -Fxq "$file" "$LOG_FILE"; then
+    echo "[$(date)] Skipping already downloaded: $file"
+    continue
+  fi
+
+  echo "[$(date)] Downloading: $file"
+  sshpass -p "$SFTP_PASS" sftp -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_DIR
+cd $SFTP_REMOTE_DIR
+get $file
+bye
+EOF
+
+  # Log the successful download
+  if [[ -f "$LOCAL_DIR/$file" ]]; then
+    echo "$file" >> "$LOG_FILE"
+    echo "[$(date)] Successfully downloaded and logged: $file"
+  else
+    echo "[$(date)] ERROR: Failed to download $file"
+  fi
+
+done < "$REMOTE_LIST"
+
+# === Upload to Azure Blob Storage ===
+if compgen -G "$LOCAL_DIR/*.xml" > /dev/null; then
+  echo "[$(date)] Uploading files to Azure Blob Storage..."
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --source "$LOCAL_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+
+  echo "[$(date)] Upload complete."
+else
+  echo "[$(date)] No XML files to upload."
+fi
+
+echo "[$(date)] Script complete. Local archive: $LOCAL_DIR"
 
 
 
