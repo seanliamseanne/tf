@@ -1980,7 +1980,75 @@ $mailboxes | Export-Csv -Path "SMTPAuthStatus.csv" -NoTypeInformation
 # Disconnect session
 Disconnect-ExchangeOnline -Confirm:$false
 
+№############################
 
+echo "[$(date)] Uploading fromPagero categorized files to Azure Blob Storage..."
+
+# Upload PROD
+az storage blob upload-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$AZURE_BLOB_CONTAINER" \
+  --destination-path "fromPagero/invoice/prod" \
+  --source "$PROD_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --overwrite \
+  --output table
+
+# Upload TEST
+az storage blob upload-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$AZURE_BLOB_CONTAINER" \
+  --destination-path "fromPagero/invoice/test" \
+  --source "$TEST_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --overwrite \
+  --output table
+
+# Upload TEMP
+az storage blob upload-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$AZURE_BLOB_CONTAINER" \
+  --destination-path "fromPagero/invoice/temp" \
+  --source "$TEMP_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --overwrite \
+  --output table
+
+
+⁷777777777777
+
+
+echo "[$(date)] Uploading toPagero files to Azure Blob Storage..."
+
+# Upload PROD
+az storage blob upload-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$AZURE_BLOB_CONTAINER" \
+  --destination-path "toPagero/invoice/prod" \
+  --source "$TO_PROD_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --overwrite \
+  --output table
+
+# Upload TEST
+az storage blob upload-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$AZURE_BLOB_CONTAINER" \
+  --destination-path "toPagero/invoice/test" \
+  --source "$TO_TEST_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --overwrite \
+  --output table
+
+# Upload TEMP
+az storage blob upload-batch \
+  --account-name "$AZURE_STORAGE_ACCOUNT" \
+  --destination "$AZURE_BLOB_CONTAINER" \
+  --destination-path "toPagero/invoice/temp" \
+  --source "$TO_TEMP_DIR" \
+  --sas-token "$SAS_TOKEN" \
+  --overwrite \
+  --output table
 
 
 
