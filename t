@@ -1903,9 +1903,58 @@ find "$UPLOAD_ROOT" -type f -name "*.xml" -exec mv {} "$LOCAL_ARCHIVE/" \;
 echo "[$(date)] Script completed."
 
 
+№##$$$$€&&&&&**(((&
 
+# Load Exchange Online module
+Import-Module ExchangeOnlineManagement
 
+# Connect to Exchange Online (interactive login)
+Connect-ExchangeOnline -UserPrincipalName admin@yourdomain.com
 
+# Set your mailbox here
+$mailbox = "smtp-relay-team@yourdomain.com"
+
+# Check current SMTP AUTH status for mailbox
+$status = Get-CASMailbox -Identity $mailbox | Select-Object Name, SmtpClientAuthenticationDisabled
+
+Write-Host "Current SMTP AUTH status for $mailbox : Disabled = $($status.SmtpClientAuthenticationDisabled)" -ForegroundColor Yellow
+
+if ($status.SmtpClientAuthenticationDisabled) {
+    Write-Host "Enabling SMTP AUTH for $mailbox..." -ForegroundColor Green
+    Set-CASMailbox -Identity $mailbox -SmtpClientAuthenticationDisabled $false
+    Write-Host "SMTP AUTH enabled for $mailbox successfully." -ForegroundColor Green
+} else {
+    Write-Host "SMTP AUTH is already enabled for $mailbox." -ForegroundColor Cyan
+}
+
+# (Optional) Check if MFA is enabled for the mailbox user
+Write-Host "Checking if MFA is enabled for $mailbox..." -ForegroundColor Yellow
+# Note: This requires MSOnline or AzureAD module; here is a quick MSOnline way:
+Import-Module MSOnline
+Connect-MsolService
+$mfa = Get-MsolUser -UserPrincipalName $mailbox | Select-Object StrongAuthenticationMethods
+
+if ($mfa.StrongAuthenticationMethods) {
+    Write-Host "MFA is enabled for $mailbox." -ForegroundColor Green
+    Write-Host "You need to create an App Password manually via https://mysignins.microsoft.com/security-info" -ForegroundColor Cyan
+} else {
+    Write-Host "MFA is NOT enabled for $mailbox." -ForegroundColor Red
+    Write-Host "You can use the regular mailbox password for SMTP AUTH." -ForegroundColor Cyan
+}
+
+# Show mailbox permissions related to SMTP AUTH
+Write-Host "Current mailbox permissions for $mailbox:" -ForegroundColor Yellow
+Get-CASMailbox -Identity $mailbox | Select Name,PopEnabled,ImapEnabled,SmtpClientAuthenticationDisabled,OWAEnabled
+
+# (Optional) Audit recommendation
+Write-Host "`n**SECURITY RECOMMENDATION:**" -ForegroundColor Magenta
+Write-Host "1. Store the mailbox password or app password securely (Azure Key Vault or password manager)." -ForegroundColor Magenta
+Write-Host "2. Regularly rotate the mailbox password or app password." -ForegroundColor Magenta
+Write-Host "3. Monitor sign-in logs and usage in Azure AD for this mailbox." -ForegroundColor Magenta
+Write-Host "4. Consider migrating to Microsoft Graph API for better security long-term." -ForegroundColor Magenta
+
+# Disconnect Exchange Online session
+Disconnect-ExchangeOnline -Confirm:$false
 
 
 
