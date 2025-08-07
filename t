@@ -1956,8 +1956,29 @@ Write-Host "4. Consider migrating to Microsoft Graph API for better security lon
 # Disconnect Exchange Online session
 Disconnect-ExchangeOnline -Confirm:$false
 
+€$$€%%%^^&&&&&&&&*********
 
 
+# Load Exchange Online module (install if needed)
+if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+    Install-Module ExchangeOnlineManagement -Force
+}
+Import-Module ExchangeOnlineManagement
+
+# Connect to Exchange Online
+Connect-ExchangeOnline -UserPrincipalName admin@yourdomain.com  # Replace with your admin account
+
+# Get all mailboxes and check SMTP AUTH status
+$mailboxes = Get-CASMailbox -ResultSize Unlimited | Select-Object DisplayName,PrimarySmtpAddress,SmtpClientAuthenticationDisabled
+
+# Show the list
+$mailboxes | Format-Table DisplayName, PrimarySmtpAddress, SmtpClientAuthenticationDisabled
+
+# Optionally export to CSV
+$mailboxes | Export-Csv -Path "SMTPAuthStatus.csv" -NoTypeInformation
+
+# Disconnect session
+Disconnect-ExchangeOnline -Confirm:$false
 
 
 
