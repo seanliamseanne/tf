@@ -2233,3 +2233,269 @@ find "$LOCAL_BASE/fromPagero" -type f -name "*.xml" -exec mv {} "$LOCAL_ARCHIVE/
 
 echo "[$(date)] Script completed."
 
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+#!/bin/bash
+
+set -euo pipefail
+set -x
+
+LOG_FILE="$HOME/pagero_sync_upload.log"
+exec > >(tee -a "LOG_FILE") 2>&1
+
+echo "[$(date)] script started"
+
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='Signicat'
+SFTP_PASS='1UBujpi*Pumr'
+SFTP_REMOTE_DIR='/fromPagero'
+SFTP_REMOTE_DIR='/toPagero'
+SFTP_FROM_DIR='/fromPagero'
+SFTP_TO_DIR='/toPagero'
+
+LOCAL_BASE="/tmp/pagero_sync/"
+LOCAL_ARCHIVE="$LOCAL_BASE/archive"
+LIST_FILE="$LOCAL_BASE/remote_files.txt"
+LOCAL_LOG_FILE="$LOCAL_BASE/downloaded_files.log"
+UPLOAD_ROOT="$LOCAL_BASE/fromPagero"
+TO_UPLOAD_DIR=LOCAL_BASE/toPagero
+mkdir -p "$TO_UPLOAD_DIR"
+
+
+AZURE_STORAGE_ACCOUNT='sftpsftpstorageaccount'
+AZURE_BLOB_CONTAINER='exflow'
+SAS_TOKEN='sv=2024-11-04&ss=bfqt&srt=co&sp=rwdlacupyx&se=2026-07-13T22:21:13Z&st=2025-06-16T14:21:13Z&spr=https&sig=fymu4Sw7MSSjbuOTH08IlbtrkSUr4wkP9LsHhmG2UeI%3D'
+
+mkdir -p "$LOCAL_BASE" "$LOCAL_ARCHIVE" "$LOCAL_BASE/fromPagero/invoice/prod" "$LOCAL_BASE/fromPagero/invoice/test" "$LOCAL_BASE/fromPagero/invoice/temp"
+mkdir -p "$LOCAL_BASE/toPagero/invoice/prod" "$LOCAL_BASE/toPagero/invoice/test" "$LOCAL_BASE/toPagero/invoice/temp"
+touch "$LOCAL_LOG_FILE"
+
+mkdir -p "$LOCAL_BASE"
+mkdir -p "$LOCAL_ARCHIVE"
+touch "$LOCAL_LOG_FILE"
+
+TO_TEMP_DIR="$LOCAL_BASE/toPagero/invoice/temp"
+TO_PROD_DIR="$LOCAL_BASE/toPagero/invoice/prod"
+TO_TEST_DIR="$LOCAL_BASE/toPagero/invoice/test"
+
+TEMP_DIR="$LOCAL_BASE/fromPagero/invoice/temp"
+PROD_DIR="$LOCAL_BASE/fromPagero/invoice/prod"
+TEST_DIR="$LOCAL_BASE/fromPagero/invoice/test"
+
+mkdir -p "$TEMP_DIR" "$PROD_DIR" "$TEST_DIR"
+
+echo "[$(date)] Script started."
+
+echo "[$(date)] Fetching XML file list from SFTP..."
+sshpass -p "$SFTP_PASS" sftp \
+-oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+-oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+-oStrictHostKeyChecking=no \
+"$SFTP_USER@$SFTP_HOST" <<EOF > "$LIST_FILE"
+cd $SFTP_REMOTE_DIR
+ls -1 *.xml
+bye
+EOF
+
+
+sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' "$LIST_FILE"
+
+
+
+echo "[$(date)] Downloading new XML download..."
+while IFS= read -r file; do
+[[ -z "$file" ]] && continue
+[[ "$file" != *.xml ]] && continue
+
+
+if grep -Fxq "$file" "$LOG_FILE"; then
+echo "[$(date)] skipping already downloaded: file: $file"
+continue
+fi
+
+echo "[$(date)] Downloading: $file..."
+sshpass -p "$SFTP_PASS" sftp \
+-oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+-oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+-oStrictHostKeyChecking=no \
+"$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_BASE
+cd $SFTP_FROM_DIR
+mget *.xml
+bye
+EOF
+
+if [[ -f "$LOCAL_BASE/$file" ]]; then
+echo "$file" >> "$LOG_FILE"
+echo "[$(date)] Downloaded and logged: $file"
+fi
+done < "$LIST_FILE"
+
+
+
+echo "[$(date)] Moving downloaded files to TEMP folder..."
+
+find "$LOCAL_BASE" -maxdepth 1 -type f -name "*.xml" -exec mv {} "$TEMP_DIR/" \;
+
+echo "[$(date)] Sorting files into prod/test folders..."
+for file in "$TEMP_DIR"/*.xml; do
+[[ -f "$file" ]] || continue
+filename=$(basename "$file")
+
+
+
+if [[ "$filename" == *prod.xml ]]; then
+mv "$file" "$PROD_DIR/"
+echo "[$(date)] Moved to PROD: $filename"
+else
+mv "$file" "$TEST_DIR/"
+echo "[$(date)] Moved to TEST: $filename"
+fi
+
+done
+
+
+UPLOAD_ROOT="$LOCAL_BASE/fromPagero"
+
+if [ "$(find "$UPLOAD_ROOT" -type f -name "*.xml" | wc -l)" -gt 0 ]; then
+echo "[$(date)] Uploading to Azure Blob Storage..."
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --source "$UPLOAD_ROOT" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite  \
+ --output table
+
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --destination-path "fromPagero/invoice/prod" \
+
+ --source "$PROD_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite \
+ --output table
+
+
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --destination-path "fromPagero/invoice/test" \
+ --source "$TEST_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite \
+ --output table
+
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --destination-path "fromPagero/invoice/temp" \
+ --source "$TEMP_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite \
+ --output table
+
+echo "[$(date)] Archiving uploaded XML files..."
+find "$LOCAL_BASE/fromPagero" -type f -name "*.xml" -exec mv {} "$LOCAL_ARCHIVE/" \;
+
+mkdir -p "$TO_TEMP_DIR" "$TO_PROD_DIR" "$TO_TEST_DIR"
+
+
+echo "[$(date)] Uploading XMLs to toPagero on SFTP..."
+sshpass -p "$SFTP_PASS" sftp \
+-oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+-oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+-oStrictHostKeyChecking=no \
+"$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_BASE/toPagero
+cd $SFTP_TO_DIR
+mput *.xml
+bye
+EOF
+
+echo "[$(date)] Uploading toPagero categorized files to Azure Blob Storage..."
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --destination-path "toPagero/invoice/prod" \
+ --source "$TO_PROD_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite \
+ --output table
+
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --destination-path "toPagero/invoice/test" \
+ --source "$TO_TEST_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite \
+ --output table
+
+az storage blob upload-batch \
+ --account-name "$AZURE_STORAGE_ACCOUNT" \
+ --destination "$AZURE_BLOB_CONTAINER" \
+ --destination-path "toPagero/invoice/temp" \
+ --source "$TO_TEMP_DIR" \
+ --sas-token "$SAS_TOKEN" \
+ --overwrite \
+ --output table
+
+echo "[$(date)] Upload complete."
+
+else
+
+echo "[$(date)] No files to upload."
+fi
+
+
+
+if compgen -G "$TO_UPLOAD_DIR/*.xml" > /dev/null; then
+
+echo "[$(date)] Uploading new files to /toPagero on SFTP..."
+sshpass -p "$SFTP_PASS" sftp \
+-oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+-oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+-oStrictHostKeyChecking=no \
+"$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $TO_UPLOAD_DIR
+cd $SFTP_TO_DIR
+mput *.xml
+bye
+EOF
+
+echo "[$(date)] Archiving upload XML files..."
+find "$UPLOAD_ROOT " -type -f -name "*.xml" -exec mv {} "$LOCAL_ARCHIVE/"\;
+
+
+echo "[$(date)] Files uploaded to Pagero SFTP /toPagero."
+else
+echo "[$(date)] No files found in $TO_UPLOAD_DIR to upload to Pagero."
+fi
+
+echo "[$(date)] script finished"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
