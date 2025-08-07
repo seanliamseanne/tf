@@ -2475,7 +2475,191 @@ fi
 
 echo "[$(date)] script finished"
 
+ccçvgghhhhhjjj
 
+#!/bin/bash
+set -euo pipefail
+set -x
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='Signicat'
+SFTP_PASS='1UBujpi*Pumr'
+SFTP_FROM_DIR='/fromPagero'
+SFTP_TO_DIR='/toPagero'
+
+LOCAL_BASE="/tmp/pagero_sync"
+LOCAL_ARCHIVE="$LOCAL_BASE/archive"
+LOCAL_LOG_FILE="$LOCAL_BASE/downloaded_files.log"
+LIST_FILE="$LOCAL_BASE/remote_files.txt"
+
+AZURE_STORAGE_ACCOUNT='sftpsftpstorageaccount'
+AZURE_BLOB_CONTAINER='exflow'
+SAS_TOKEN='sv=2024-11-04&ss=bfqt&srt=co&sp=rwdlacupyx&se=2026-07-13T22:21:13Z&st=2025-06-16T14:21:13Z&spr=https&sig=fymu4Sw7MSSjbuOTH08IlbtrkSUr4wkP9LsHhmG2UeI%3D'
+
+# === Directory Setup ===
+mkdir -p "$LOCAL_BASE" "$LOCAL_ARCHIVE"
+mkdir -p "$LOCAL_BASE/fromPagero/invoice/prod" "$LOCAL_BASE/fromPagero/invoice/test" "$LOCAL_BASE/fromPagero/invoice/temp"
+mkdir -p "$LOCAL_BASE/toPagero/invoice/prod" "$LOCAL_BASE/toPagero/invoice/test" "$LOCAL_BASE/toPagero/invoice/temp"
+touch "$LOCAL_LOG_FILE"
+
+FROM_TEMP_DIR="$LOCAL_BASE/fromPagero/invoice/temp"
+FROM_PROD_DIR="$LOCAL_BASE/fromPagero/invoice/prod"
+FROM_TEST_DIR="$LOCAL_BASE/fromPagero/invoice/test"
+
+TO_TEMP_DIR="$LOCAL_BASE/toPagero/invoice/temp"
+TO_PROD_DIR="$LOCAL_BASE/toPagero/invoice/prod"
+TO_TEST_DIR="$LOCAL_BASE/toPagero/invoice/test"
+
+echo "[$(date)] Script started."
+
+# === Step 1: Get remote list of XML files ===
+echo "[$(date)] Fetching XML file list from SFTP..."
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF > "$LIST_FILE"
+cd $SFTP_FROM_DIR
+ls -1 *.xml
+bye
+EOF
+
+# Remove whitespace
+sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' "$LIST_FILE"
+
+# === Step 2: Download only new files ===
+echo "[$(date)] Starting XML download..."
+while IFS= read -r file; do
+  [[ -z "$file" || "$file" != *.xml ]] && continue
+
+  if grep -Fxq "$file" "$LOCAL_LOG_FILE"; then
+    echo "[$(date)] Skipping already downloaded file: $file"
+    continue
+  fi
+
+  echo "[$(date)] Downloading: $file"
+  sshpass -p "$SFTP_PASS" sftp \
+    -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+    -oStrictHostKeyChecking=no \
+    "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_BASE
+cd $SFTP_FROM_DIR
+get $file
+bye
+EOF
+
+  if [[ -f "$LOCAL_BASE/$file" ]]; then
+    echo "$file" >> "$LOCAL_LOG_FILE"
+    echo "[$(date)] Downloaded and logged: $file"
+  else
+    echo "[$(date)] ERROR: $file not found after download."
+  fi
+done < "$LIST_FILE"
+
+# === Step 3: Move to TEMP ===
+echo "[$(date)] Moving downloaded files to TEMP folder..."
+find "$LOCAL_BASE" -maxdepth 1 -type f -name "*.xml" -exec mv {} "$FROM_TEMP_DIR/" \;
+
+# === Step 4: Categorize into prod/test ===
+echo "[$(date)] Sorting files into prod/test folders..."
+for file in "$FROM_TEMP_DIR"/*.xml; do
+  [[ -f "$file" ]] || continue
+  filename=$(basename "$file")
+
+  if [[ "$filename" == *prod*.xml ]]; then
+    mv "$file" "$FROM_PROD_DIR/"
+    echo "[$(date)] Moved to PROD: $filename"
+  elif [[ "$filename" == *test*.xml ]]; then
+    mv "$file" "$FROM_TEST_DIR/"
+    echo "[$(date)] Moved to TEST: $filename"
+  else
+    echo "[$(date)] Uncategorized, staying in TEMP: $filename"
+  fi
+done
+
+# === Step 5: Upload to Azure Blob Storage ===
+echo "[$(date)] Uploading to Azure Blob Storage..."
+
+# PROD
+if compgen -G "$FROM_PROD_DIR/*.xml" > /dev/null; then
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --destination-path "fromPagero/invoice/prod" \
+    --source "$FROM_PROD_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+fi
+
+# TEST
+if compgen -G "$FROM_TEST_DIR/*.xml" > /dev/null; then
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --destination-path "fromPagero/invoice/test" \
+    --source "$FROM_TEST_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+fi
+
+# TEMP
+if compgen -G "$FROM_TEMP_DIR/*.xml" > /dev/null; then
+  az storage blob upload-batch \
+    --account-name "$AZURE_STORAGE_ACCOUNT" \
+    --destination "$AZURE_BLOB_CONTAINER" \
+    --destination-path "fromPagero/invoice/temp" \
+    --source "$FROM_TEMP_DIR" \
+    --sas-token "$SAS_TOKEN" \
+    --overwrite \
+    --output table
+fi
+
+# === Step 6: Archive uploaded files ===
+echo "[$(date)] Archiving uploaded XML files..."
+find "$LOCAL_BASE/fromPagero" -type f -name "*.xml" -exec mv {} "$LOCAL_ARCHIVE/" \;
+
+# === Step 7: Upload to toPagero if any files present ===
+echo "[$(date)] Checking for files to upload to toPagero..."
+
+TO_UPLOAD_DIR="$LOCAL_BASE/toPagero"
+
+if compgen -G "$TO_UPLOAD_DIR/*.xml" > /dev/null; then
+  echo "Uploading to toPagero SFTP..."
+  sshpass -p "$SFTP_PASS" sftp \
+    -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+    -oStrictHostKeyChecking=no \
+    "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $TO_UPLOAD_DIR
+cd $SFTP_TO_DIR
+mput *.xml
+bye
+EOF
+fi
+
+# Optional: Upload to Azure from toPagero
+for path in "prod" "test" "temp"; do
+  src="$LOCAL_BASE/toPagero/invoice/$path"
+  if compgen -G "$src/*.xml" > /dev/null; then
+    az storage blob upload-batch \
+      --account-name "$AZURE_STORAGE_ACCOUNT" \
+      --destination "$AZURE_BLOB_CONTAINER" \
+      --destination-path "toPagero/invoice/$path" \
+      --source "$src" \
+      --sas-token "$SAS_TOKEN" \
+      --overwrite \
+      --output table
+  fi
+done
+
+# Archive from toPagero
+find "$TO_UPLOAD_DIR" -type f -name "*.xml" -exec mv {} "$LOCAL_ARCHIVE/" \;
+
+echo "[$(date)] Script completed."
 
 
 
