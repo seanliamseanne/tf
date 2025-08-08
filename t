@@ -1,4 +1,4 @@
-# Set certificate subject
+2# Set certificate subject
 $certSubject = "CN=KeepitAppCertificate"
 
 # Create the certificate in CurrentUser\My store
@@ -3082,9 +3082,146 @@ fi
 
 echo "[$(date)] Script completed successfully."
 
+x̌xxxxxxxxxxxxxxccfffccccsecond last one
 
 
 
+#!/bin/bash
+
+set -euo pipefail
+set -x
+
+# === Logging ===
+LOG_FILE="$HOME/pagero_sync_upload.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "[$(date)] Script started."
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='Signicat'
+SFTP_PASS='1UBujpi*Pumr'
+SFTP_FROM_DIR='fromPagero'   # removed leading slash
+SFTP_TO_DIR='toPagero'       # removed leading slash
+
+LOCAL_BASE="/tmp/pagero_sync"
+LOCAL_ARCHIVE="$LOCAL_BASE/archive"
+LOCAL_LOG_FILE="$LOCAL_BASE/downloaded_files.log"
+LIST_FILE="$LOCAL_BASE/remote_files.txt"
+
+AZURE_STORAGE_ACCOUNT='sftpsftpstorageaccount'
+AZURE_BLOB_CONTAINER='exflow'
+SAS_TOKEN='sv=2024-11-04&ss=bfqt&srt=co&sp=rwdlacupyx&se=2026-07-13T22:21:13Z&st=2025-06-16T14:21:13Z&spr=https&sig=fymu4Sw7MSSjbuOTH08IlbtrkSUr4wkP9LsHhmG2UeI%3D'
+
+# === Directories & permissions ===
+mkdir -p "$LOCAL_BASE" "$LOCAL_ARCHIVE"
+mkdir -p "$LOCAL_BASE/fromPagero/invoice/"{prod,test,temp}
+mkdir -p "$LOCAL_BASE/toPagero/invoice/"{prod,test,temp}
+chmod -R 755 "$LOCAL_BASE"
+touch "$LOCAL_LOG_FILE"
+chmod 664 "$LOCAL_LOG_FILE"
+
+FROM_TEMP_DIR="$LOCAL_BASE/fromPagero/invoice/temp"
+FROM_PROD_DIR="$LOCAL_BASE/fromPagero/invoice/prod"
+FROM_TEST_DIR="$LOCAL_BASE/fromPagero/invoice/test"
+
+# === Step 1: Fetch list from SFTP (case-insensitive XML) ===
+echo "[$(date)] Fetching file list from SFTP..."
+sshpass -p "$SFTP_PASS" sftp -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF > "$LIST_FILE"
+cd $SFTP_FROM_DIR
+ls -1
+bye
+EOF
+
+# Cleanup and filter only XML files
+sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' "$LIST_FILE"
+grep -i '\.xml$' "$LIST_FILE" > "${LIST_FILE}.tmp" && mv "${LIST_FILE}.tmp" "$LIST_FILE"
+
+# === Step 2: Download files if new ===
+echo "[$(date)] Downloading XML files..."
+while IFS= read -r file; do
+  file=$(echo "$file" | tr -d '\r')  # remove any carriage returns
+  [[ -z "$file" || "$file" != *.[xX][mM][lL] ]] && continue
+
+  if grep -Fxq "$file" "$LOCAL_LOG_FILE"; then
+    echo "[$(date)] Skipping already downloaded file: $file"
+    continue
+  fi
+
+  echo "[$(date)] Downloading $file..."
+  sshpass -p "$SFTP_PASS" sftp -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF
+cd $SFTP_FROM_DIR
+get "$file" "$LOCAL_BASE/$file"
+bye
+EOF
+
+  if [[ -f "$LOCAL_BASE/$file" ]]; then
+    echo "$file" >> "$LOCAL_LOG_FILE"
+    echo "[$(date)] Downloaded: $file"
+  else
+    echo "[$(date)] ERROR: File not found after download: $file"
+  fi
+done < "$LIST_FILE"
+
+# === Step 3: Move downloaded files to TEMP ===
+echo "[$(date)] Moving files to TEMP folder..."
+find "$LOCAL_BASE" -maxdepth 1 -type f -iname "*.xml" -exec mv {} "$FROM_TEMP_DIR/" \;
+
+# === Step 4: Sort files ===
+for file in "$FROM_TEMP_DIR"/*.xml "$FROM_TEMP_DIR"/*.XML; do
+  [[ -f "$file" ]] || continue
+  filename=$(basename "$file")
+  if [[ "$filename" == *prod*.[xX][mM][lL] ]]; then
+    mv "$file" "$FROM_PROD_DIR/"
+    echo "[$(date)] Sorted to PROD: $filename"
+  elif [[ "$filename" == *test*.[xX][mM][lL] ]]; then
+    mv "$file" "$FROM_TEST_DIR/"
+    echo "[$(date)] Sorted to TEST: $filename"
+  else
+    echo "[$(date)] Staying in TEMP: $filename"
+  fi
+done
+
+# === Step 5: Upload to Azure ===
+for path in prod test temp; do
+  src="$LOCAL_BASE/fromPagero/invoice/$path"
+  if compgen -G "$src"/*.[xX][mM][lL] > /dev/null; then
+    echo "[$(date)] Uploading $path files to Azure..."
+    az storage blob upload-batch \
+      --account-name "$AZURE_STORAGE_ACCOUNT" \
+      --destination "$AZURE_BLOB_CONTAINER" \
+      --destination-path "fromPagero/invoice/$path" \
+      --source "$src" \
+      --sas-token "$SAS_TOKEN" \
+      --overwrite \
+      --output table || {
+        echo "[$(date)] ERROR: Azure upload failed for $path"
+      }
+  fi
+done
+
+# === Step 6: Archive downloaded files ===
+echo "[$(date)] Archiving XML files..."
+find "$LOCAL_BASE/fromPagero" -type f -iname "*.xml" -exec mv {} "$LOCAL_ARCHIVE/" \;
+
+# === Step 7: Upload files from ALL toPagero subfolders ===
+echo "[$(date)] Checking for files to upload to Pagero..."
+if find "$LOCAL_BASE/toPagero/invoice" -type f -iname "*.xml" | grep -q .; then
+  echo "[$(date)] Uploading files to Pagero /toPagero..."
+  find "$LOCAL_BASE/toPagero/invoice" -type f -iname "*.xml" | while read -r upload_file; do
+    filename=$(basename "$upload_file")
+    sshpass -p "$SFTP_PASS" sftp -oStrictHostKeyChecking=no "$SFTP_USER@$SFTP_HOST" <<EOF
+cd $SFTP_TO_DIR
+put "$upload_file" "$filename"
+bye
+EOF
+    echo "[$(date)] Uploaded: $filename"
+    mv "$upload_file" "$LOCAL_ARCHIVE/"
+  done
+else
+  echo "[$(date)] No XML files found in toPagero folders to upload."
+fi
+
+echo "[$(date)] Script completed successfully."
 
 
 
