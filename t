@@ -3224,7 +3224,89 @@ fi
 echo "[$(date)] Script completed successfully."
 
 
+№###########^^^&&&*(()))*&&^^%$$$$$%%^
 
+#!/bin/bash
+set -euo pipefail
+# set -x  # Uncomment for debugging
+
+# === Configuration ===
+SFTP_HOST='ftp.pageroonline.com'
+SFTP_USER='Signicat'
+SFTP_PASS='1UBujpi*Pumr'
+
+LOCAL_BASE="output/pagero_sync"
+LOCAL_ARCHIVE="$LOCAL_BASE/archive"
+
+TEMP_DIR="$LOCAL_BASE/fromPagero/invoice/temp"
+PROD_DIR="$LOCAL_BASE/fromPagero/invoice/prod"
+TEST_DIR="$LOCAL_BASE/fromPagero/invoice/test"
+
+AZURE_STORAGE_ACCOUNT='sftpsftpstorageaccount'
+AZURE_BLOB_CONTAINER='exflow'
+SAS_TOKEN='sv=2024-11-04&ss=bfqt&srt=co&sp=rwdlacupyx&se=2026-07-13T22:21:13Z&st=2025-06-16T14:21:13Z&spr=https&sig=fymu4Sw7MSSjbuOTH08IlbtrkSUr4wkP9LsHhmG2UeI%3D'
+
+echo "[$(date)] Script started."
+
+# Create necessary directories
+mkdir -p "$LOCAL_BASE"
+mkdir -p "$LOCAL_ARCHIVE"
+
+# === Step 1: Download from SFTP ===
+sshpass -p "$SFTP_PASS" sftp \
+  -oHostKeyAlgorithms=+ssh-rsa,ssh-dss \
+  -oPubkeyAcceptedKeyTypes=+ssh-rsa,ssh-dss \
+  -oStrictHostKeyChecking=no \
+  "$SFTP_USER@$SFTP_HOST" <<EOF
+lcd $LOCAL_BASE
+get -R *
+bye
+EOF
+
+# === Step 2: Filter only invoice XML files into separate folders ===
+echo "[$(date)] Filtering invoice XML files..."
+
+for DIR in "$TEMP_DIR" "$PROD_DIR" "$TEST_DIR"; do
+    mkdir -p "$DIR"
+    FILTERED_DIR="${DIR}_filtered"
+    mkdir -p "$FILTERED_DIR"
+
+    for FILE in "$DIR"/*.xml; do
+        [ -e "$FILE" ] || continue
+        if grep -q "<Invoice>" "$FILE"; then
+            cp "$FILE" "$FILTERED_DIR/"
+        fi
+    done
+done
+
+# === Step 3: Upload only filtered invoices to Azure ===
+echo "[$(date)] Uploading filtered invoice XML files to Azure Blob Storage..."
+
+for DIR in "$TEMP_DIR" "$PROD_DIR" "$TEST_DIR"; do
+    FILTERED_DIR="${DIR}_filtered"
+    DEST_PATH="fromPagero/invoice/$(basename "$DIR")"
+
+    az storage blob upload-batch \
+        --account-name "$AZURE_STORAGE_ACCOUNT" \
+        --destination "$AZURE_BLOB_CONTAINER" \
+        --destination-path "$DEST_PATH" \
+        --source "$FILTERED_DIR" \
+        --sas-token "$SAS_TOKEN" \
+        --overwrite \
+        --output table
+done
+
+# === Step 4: Archive only filtered invoice files ===
+echo "[$(date)] Archiving uploaded invoice XML files..."
+for DIR in "$TEMP_DIR" "$PROD_DIR" "$TEST_DIR"; do
+    FILTERED_DIR="${DIR}_filtered"
+    for FILE in "$FILTERED_DIR"/*.xml; do
+        [ -e "$FILE" ] || continue
+        mv "$FILE" "$LOCAL_ARCHIVE/"
+    done
+done
+
+echo "[$(date)] Script completed."
 
 
 
